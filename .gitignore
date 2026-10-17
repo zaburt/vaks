@@ -1,0 +1,31 @@
+# Gem build artifacts
+*.gem
+*.rbc
+
+# Bundler
+/.bundle
+/vendor/bundle
+
+# Test & coverage
+/coverage/
+/spec/tmp
+.rspec
+
+# Temp / logs
+/log
+/tmp
+rerun.txt
+
+# Editor & OS files
+*.swp
+*.kate-swp
+*~
+.#*
+.DS_Store
+.directory
+.idea/
+.byebug_history
+
+# Secrets / env
+.env
+*.orig

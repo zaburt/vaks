@@ -1,0 +1,16 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# When run from a git checkout (e.g. deployed to /opt/vaks), pick up the
+# locked gem versions from the repo's Gemfile. Gem-installed deployments
+# don't ship a Gemfile, so this is a no-op there.
+gemfile = File.expand_path("../Gemfile", __dir__)
+if File.exist?(gemfile)
+  ENV["BUNDLE_GEMFILE"] ||= gemfile
+  require "bundler/setup"
+end
+
+$LOAD_PATH.unshift File.join(__dir__, "../lib")
+require "vaks"
+
+Vaks::Vaksd.new.run

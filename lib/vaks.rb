@@ -1,0 +1,20 @@
+require_relative "vaks/version"
+require_relative "vaks/config"
+require_relative "vaks/job"
+require_relative "vaks/priority_queue"
+require_relative "vaks/disk_space"
+require_relative "vaks/webhook"
+require_relative "vaks/history"
+require_relative "vaks/ffmpeg"
+require_relative "vaks/power"
+require_relative "vaks/control"
+require_relative "vaks/durations"
+require_relative "vaks/worker"
+require_relative "vaks/watcher"
+require_relative "vaks/socket_server"
+require_relative "vaks/http_server"
+require_relative "vaks/socket_client"
+require_relative "vaks/vaksd"
+
+module Vaks
+end

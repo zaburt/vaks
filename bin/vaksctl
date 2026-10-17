@@ -1,0 +1,487 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# When run from a git checkout (e.g. deployed to /opt/vaks), pick up the
+# locked gem versions from the repo's Gemfile. Gem-installed deployments
+# don't ship a Gemfile, so this is a no-op there.
+gemfile = File.expand_path("../Gemfile", __dir__)
+if File.exist?(gemfile)
+  ENV["BUNDLE_GEMFILE"] ||= gemfile
+  require "bundler/setup"
+end
+
+$LOAD_PATH.unshift File.join(__dir__, "../lib")
+require "vaks"
+require "optparse"
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def client
+  Vaks::SocketClient.new(Vaks::Config.new.socket_path)
+end
+
+def send_cmd(hash)
+  client.send(hash)
+rescue => e
+  abort "Error: #{e.message}"
+end
+
+def format_elapsed(seconds)
+  return "-" unless seconds
+  h = seconds.to_i / 3600
+  m = (seconds.to_i % 3600) / 60
+  s = seconds.to_i % 60
+  format("%02d:%02d:%02d", h, m, s)
+end
+
+# ---------------------------------------------------------------------------
+# Commands
+# ---------------------------------------------------------------------------
+
+def cmd_status
+  res = send_cmd("cmd" => "status")
+
+  puts "Watches : #{res["watches"]}"
+  puts "Queued  : #{res["queued"]}"
+  puts "Running : #{res["running"].length}"
+  puts "State   : PAUSED (ffmpeg frozen — run `vaksctl unpause`)" if res["paused"]
+  puts "State   : STOPPED (queue on hold — run `vaksctl resume`)" if res["stopped"]
+  puts "After   : #{res["after_action"]}" if res["after_action"] && res["after_action"] != "none"
+  puts "Power error: #{res["power_error"]}" if res["power_error"]
+
+  res["running"].each do |job|
+    elapsed = format_elapsed(job["elapsed"])
+    fps     = job["fps"]   ? "#{job["fps"].round(1)} fps" : ""
+    speed   = job["speed"] ? "speed=#{job["speed"]}"      : ""
+    puts "  [PID #{job["pid"]}] #{File.basename(job["path"])}  #{elapsed}  #{fps}  #{speed}"
+  end
+end
+
+def cmd_queue
+  res = send_cmd("cmd" => "queue")
+  if res["jobs"].empty?
+    puts "Queue is empty"
+  else
+    puts "Queued: #{res["queued"]}"
+    res["jobs"].each_with_index do |j, i|
+      pri = j["priority"] != 0 ? " [priority #{j["priority"]}]" : ""
+      puts "  #{i + 1}. #{File.basename(j["path"])}  (#{j["watch"]})#{pri}"
+    end
+  end
+end
+
+def cmd_queue_reorder(paths)
+  res = send_cmd("cmd" => "queue-reorder", "paths" => paths)
+  puts res["ok"] ? "Queue reordered" : "Error: #{res["error"]}"
+end
+
+def cmd_stop_job(path, all: false)
+  res = send_cmd("cmd" => "stop-job", "path" => path, "all" => all)
+  puts res["ok"] ? "Killed #{res["killed"]} job(s); queue on hold — `vaksctl resume` to start again" : "Error: #{res["error"]}"
+end
+
+def cmd_pause(path, all: false)
+  res = send_cmd("cmd" => "pause", "path" => path && File.expand_path(path), "all" => all)
+  puts res["ok"] ? "Froze #{res["paused"]} job(s); queue on hold — `vaksctl unpause` to continue" : "Error: #{res["error"]}"
+end
+
+def cmd_unpause
+  res = send_cmd("cmd" => "unpause")
+  puts res["ok"] ? "Continued #{res["continued"]} job(s)" : "Error: #{res["error"]}"
+end
+
+def cmd_resume
+  res = send_cmd("cmd" => "resume")
+  puts res["ok"] ? "Resumed" : "Error: #{res["error"]}"
+end
+
+def cmd_power(action)
+  res = send_cmd("cmd" => "power", "action" => action)
+  puts res["ok"] ? "After-process action: #{res["after_action"]}" : "Error: #{res["error"]}"
+end
+
+def cmd_retry_job(path)
+  res = send_cmd("cmd" => "retry-job", "path" => File.expand_path(path))
+  puts res["ok"] ? "Retrying: #{res["retried"]}" : "Error: #{res["error"]}"
+end
+
+def cmd_flush_queue
+  res = send_cmd("cmd" => "flush-queue")
+  puts res["ok"] ? "Flushed #{res["flushed"]} queued job(s)" : "Error: #{res["error"]}"
+end
+
+def cmd_drain
+  res = send_cmd("cmd" => "drain")
+  puts res["ok"] ? "Drain initiated — daemon will stop after current jobs finish" : "Error: #{res["error"]}"
+end
+
+def cmd_job_output(path, follow: false)
+  path = File.expand_path(path)
+  printed = 0
+  loop do
+    res = send_cmd("cmd" => "job-output", "path" => path)
+    if res["error"]
+      abort "Error: #{res["error"]}" unless follow && printed > 0
+      puts "Error: #{res["error"]}"
+      return
+    end
+    lines = res["output"] || []
+    lines[printed..-1]&.each { |line| puts line }
+    printed = lines.length
+    break unless follow
+    sleep 1
+  end
+end
+
+def cmd_config
+  config = Vaks::Config.new
+  puts "Config dir        : #{config.config_dir}"
+  puts "Watches dir       : #{config.watches_dir}"
+  puts "Socket path       : #{config.socket_path}"
+  puts "Workers           : #{config.workers}"
+  puts "Log level         : #{config.log_level}"
+  puts "Extensions        : #{config.extensions.join(", ")}"
+  puts "Idle shutdown     : #{config.idle_shutdown}"
+  puts "Idle timeout (s)  : #{config.idle_shutdown_timeout}"
+  puts "Idle shutdown cmd : #{config.idle_shutdown_command || "-"}"
+  puts "Startup delay (s) : #{config.startup_delay}"
+  puts "Default retries   : #{config.default_retries}"
+  puts "Retry delay (s)   : #{config.retry_delay}"
+  puts "Min free space MB : #{config.min_free_space_mb || "-"}"
+  puts "Webhook URL       : #{config.webhook_url || "-"}"
+  puts "Profile presets   : #{config.profile_presets.keys.join(", ")}" unless config.profile_presets.empty?
+end
+
+def cmd_set_workers(count)
+  res = send_cmd("cmd" => "config", "workers" => count)
+  puts res["ok"] ? "Workers set to #{count}" : "Error: #{res["error"]}"
+end
+
+def cmd_watch_list
+  res = send_cmd("cmd" => "watch-list")
+  if res["watches"].empty?
+    puts "No watches configured"
+  else
+    res["watches"].each do |w|
+      status = w["enabled"] == false ? " (suspended)" : ""
+      puts "  #{w["path"]}#{status}"
+      puts "    done-dir        : #{w["done_dir"]}"
+      puts "    working-dir     : #{w["working_dir"]}"   if w["working_dir"]
+      puts "    source-done-dir : #{w["source_done_dir"]}" if w["source_done_dir"]
+      puts "    error-dir       : #{w["error_dir"]}"
+      puts "    delay           : #{w["delay"]}s"         if w["delay"].to_i > 0
+      puts "    priority        : #{w["priority"]}"       if w["priority"].to_i != 0
+      puts "    custom          : yes"                    if w["custom"]
+      puts "    profile-preset  : #{w["profile_preset"]}" if w["profile_preset"]
+      puts "    retries         : #{w["retries"]}"        if w["retries"].to_i > 0
+      puts "    min-free-space  : #{w["min_free_space_mb"]}MB" if w["min_free_space_mb"]
+      puts "    webhook-url     : #{w["webhook_url"]}"    if w["webhook_url"]
+      puts "    nice            : #{w["nice"]}"            if w["nice"]
+      puts "    ionice          : class #{w["ionice_class"]} level #{w["ionice_level"]}" if w["ionice_class"]
+      profile = w["profile"] || {}
+      unless profile.empty?
+        puts "    profile         : #{profile.map { |k, v| "#{k}=#{v}" }.join("  ")}"
+      end
+    end
+  end
+end
+
+def cmd_watch_toggle(path, enabled)
+  res = send_cmd("cmd" => "watch-toggle", "path" => File.expand_path(path), "enabled" => enabled)
+  if res["ok"]
+    puts "Watch #{enabled ? "resumed" : "suspended"}: #{path}"
+  else
+    puts "Error: #{res["error"]}"
+  end
+end
+
+def cmd_watch_add(path, opts)
+  config = Vaks::Config.new
+  profile = config.default_profile.dup
+  profile[:codec_video]    = opts[:codec_video]    if opts[:codec_video]
+  profile[:codec_audio]    = opts[:codec_audio]    if opts[:codec_audio]
+  profile[:codec_subtitle] = opts[:codec_subtitle] if opts[:codec_subtitle]
+  profile[:resolution]     = opts[:resolution]     if opts[:resolution]
+  profile[:smart_audio]    = opts[:smart_audio]    if opts[:smart_audio]
+
+  file = config.write_watch_config(
+    watch_path:      File.expand_path(path),
+    profile:         profile,
+    done_dir:        opts[:done_dir]        || "done",
+    working_dir:     opts[:working_dir],
+    source_done_dir: opts[:source_done_dir],
+    error_dir:       opts[:error_dir]       || "error",
+    delay:           opts[:delay]           || 0,
+    priority:        opts[:priority]        || 0,
+    custom:          opts[:custom]          || false,
+    profile_preset:  opts[:profile_preset],
+    retries:         opts[:retries],
+    min_free_space_mb: opts[:min_free_space_mb],
+    webhook_url:     opts[:webhook_url],
+    webhook_events:  opts[:webhook_events],
+    nice:            opts[:nice],
+    ionice_class:    opts[:ionice_class],
+    ionice_level:    opts[:ionice_level]
+  )
+  puts "Watch added: #{path}"
+  puts "Config written: #{file}"
+rescue => e
+  abort "Error: #{e.message}"
+end
+
+def cmd_watch_remove(path)
+  config = Vaks::Config.new
+  if config.delete_watch_config(File.expand_path(path))
+    puts "Watch removed: #{path}"
+  else
+    abort "No watch found for: #{path}"
+  end
+rescue => e
+  abort "Error: #{e.message}"
+end
+
+def format_bytes(n)
+  return "-" unless n
+  units = %w[B KB MB GB TB]
+  i = 0
+  f = n.to_f
+  while f >= 1024 && i < units.length - 1
+    f /= 1024
+    i += 1
+  end
+  format("%.1f%s", f, units[i])
+end
+
+def cmd_history
+  res = send_cmd("cmd" => "history")
+  if res["error"]
+    abort "Error: #{res["error"]}"
+  end
+  stats = res["stats"] || {}
+  puts "Total processed : #{stats["total"]}"
+  puts "Succeeded       : #{stats["succeeded"]}"
+  puts "Failed          : #{stats["failed"]}"
+  puts "Space saved     : #{format_bytes(stats["space_saved"])}"
+  puts "Avg duration    : #{format_elapsed(stats["avg_duration"])}"
+  puts
+  (res["events"] || []).each do |e|
+    mark  = e["success"] ? "✓" : "✗"
+    saved = e["success"] && e["size_before"] && e["size_after"] ? " (#{format_bytes(e["size_before"] - e["size_after"])} saved)" : ""
+    puts "  #{mark} #{File.basename(e["path"])} — #{e["watch"]} — #{format_elapsed(e["duration"])}#{saved}"
+    puts "      #{e["error"]}" if e["error"]
+  end
+end
+
+# ---------------------------------------------------------------------------
+# CLI parser
+# ---------------------------------------------------------------------------
+
+USAGE = <<~USAGE
+  Usage: vaksctl <command> [options]
+
+  Commands:
+    status                     Show running jobs and queue depth
+    queue                      Show pending jobs in processing order
+    queue reorder PATH...      Reorder the queue (first PATH is processed first)
+    config                     Print current configuration
+    config set-workers N       Change worker count on the running daemon
+    stop-job [--all] [PATH]    Kill ffmpeg immediately (SIGKILL) and hold the queue
+    pause [--all] [PATH]       Freeze ffmpeg (SIGSTOP) in place and hold the queue; no progress is lost
+    unpause                    Continue frozen jobs exactly where they left off
+    resume                     Start encoding again after stop-job (killed files restart from scratch)
+    power ACTION               What to do when finished (changeable any time), ACTION is one of:
+                                 none, shutdown-after-all, reboot-after-all,
+                                 shutdown-after-current, reboot-after-current
+    retry-job PATH             Re-queue a previously failed job (moves it back from error/)
+    flush-queue                Clear the pending queue (running jobs finish)
+    drain                      Finish current jobs then stop the daemon
+    watch list                 List watched directories
+    watch add PATH [options]   Add a new watched directory
+    watch remove PATH          Remove a watched directory
+    watch suspend PATH         Temporarily stop encoding new files for a watch
+    watch resume PATH          Resume a suspended watch
+    job-output PATH [--follow] Show buffered ffmpeg output for a running job
+    history                    Show recently completed/failed jobs and stats
+
+  Options for 'watch add':
+    --codec-video VALUE        Video codec (e.g. libx265, libx264, copy)
+    --codec-audio VALUE        Audio codec (e.g. aac, copy)
+    --codec-subtitle VALUE     Subtitle codec (e.g. copy)
+    --resolution VALUE         Output resolution (e.g. 1280x720)
+    --extra-args VALUE         Extra ffmpeg arguments (quoted string)
+    --smart-audio               Skip audio re-encode if codec already matches --codec-audio
+    --profile-preset NAME       Named profile preset from config.yml `profiles:`, merged with overrides
+    --done-dir VALUE           Output directory (default: done/ inside watch path)
+    --working-dir VALUE        Temp directory during encoding; file moved to done/ on success
+    --source-done-dir VALUE    Move source file here after successful encode
+    --error-dir VALUE          Error directory (default: error/ inside watch path)
+    --delay SECONDS            Seconds to wait before starting encoding (default: 0)
+    --priority INTEGER         Job priority; higher = processed first (default: 0)
+    --custom                   Require a .vaks.yml sidecar file to trigger encoding
+    --retries N                 Retry attempts before moving a failed job to error/ (default: 0)
+    --min-free-space-mb N       Defer encoding while free space on the target dir is below N MB
+    --webhook-url URL           POST a JSON payload here on job success/failure
+    --webhook-events LIST       Comma-separated events to notify: success,failure (default: both)
+    --nice N                     Run ffmpeg with `nice -n N` (CPU priority)
+    --ionice-class N             Run ffmpeg with `ionice -c N` (1=realtime 2=best-effort 3=idle)
+    --ionice-level N             `ionice -n N` priority within the class (0-7)
+
+  Examples:
+    vaksctl watch add /media/inbox --codec-video libx265 --codec-audio aac
+    vaksctl watch add /media/smol  --codec-video libx264 --resolution 1280x720
+    vaksctl watch add /media/bg    --profile-preset 1080p-h265 --nice 15 --ionice-class 3
+    vaksctl stop-job /media/inbox/movie.mkv
+    vaksctl stop-job --all
+    vaksctl queue reorder /media/inbox/b.mkv /media/inbox/a.mkv
+    vaksctl watch suspend /media/inbox
+    vaksctl job-output /media/inbox/movie.mkv --follow
+    vaksctl history
+USAGE
+
+command = ARGV.shift
+
+case command
+when "status"
+  cmd_status
+
+when "config"
+  subcommand = ARGV.shift
+  case subcommand
+  when nil
+    cmd_config
+  when "set-workers"
+    count = ARGV.shift
+    abort "Usage: vaksctl config set-workers N" unless count
+    cmd_set_workers(count.to_i)
+  else
+    abort "Unknown config subcommand: #{subcommand.inspect}\n\n#{USAGE}"
+  end
+
+when "queue"
+  subcommand = ARGV[0]
+  if subcommand == "reorder"
+    ARGV.shift
+    paths = ARGV.map { |p| File.expand_path(p) }
+    abort "Usage: vaksctl queue reorder PATH..." if paths.empty?
+    cmd_queue_reorder(paths)
+  else
+    cmd_queue
+  end
+
+when "stop-job"
+  opts = {}
+  OptionParser.new do |o|
+    o.on("--all") { opts[:all] = true }
+  end.parse!(ARGV)
+  path = ARGV.first
+  abort "Specify a file path or --all" unless opts[:all] || path
+  cmd_stop_job(path, all: opts[:all])
+
+when "pause"
+  opts = {}
+  OptionParser.new { |o| o.on("--all") { opts[:all] = true } }.parse!(ARGV)
+  path = ARGV.first
+  abort "Specify a file path or --all" unless opts[:all] || path
+  cmd_pause(path, all: opts[:all])
+
+when "unpause"
+  cmd_unpause
+
+when "resume"
+  cmd_resume
+
+when "power"
+  action = ARGV.first.to_s.tr("-", "_")
+  abort "Usage: vaksctl power none|shutdown-after-all|reboot-after-all|shutdown-after-current|reboot-after-current" if action.empty?
+  cmd_power(action)
+
+when "retry-job"
+  path = ARGV.first
+  abort "Usage: vaksctl retry-job PATH" unless path
+  cmd_retry_job(path)
+
+when "flush-queue"
+  cmd_flush_queue
+
+when "drain"
+  cmd_drain
+
+when "history"
+  cmd_history
+
+when "job-output"
+  opts = {}
+  OptionParser.new do |o|
+    o.on("--follow") { opts[:follow] = true }
+  end.parse!(ARGV)
+  path = ARGV.first
+  abort "Usage: vaksctl job-output PATH [--follow]" unless path
+  cmd_job_output(path, follow: opts[:follow])
+
+when "watch"
+  subcommand = ARGV.shift
+  case subcommand
+  when "list"
+    cmd_watch_list
+
+  when "add"
+    path = ARGV.shift
+    abort "Usage: vaksctl watch add PATH [options]" unless path
+
+    opts = {}
+    OptionParser.new do |o|
+      o.on("--codec-video V")    { |v| opts[:codec_video]    = v }
+      o.on("--codec-audio V")    { |v| opts[:codec_audio]    = v }
+      o.on("--codec-subtitle V") { |v| opts[:codec_subtitle] = v }
+      o.on("--resolution V")     { |v| opts[:resolution]     = v }
+      o.on("--extra-args V")     { |v| opts[:extra_args]     = v }
+      o.on("--smart-audio")      {     opts[:smart_audio]     = true }
+      o.on("--profile-preset V")  { |v| opts[:profile_preset]  = v }
+      o.on("--done-dir V")        { |v| opts[:done_dir]        = v }
+      o.on("--working-dir V")     { |v| opts[:working_dir]     = v }
+      o.on("--source-done-dir V") { |v| opts[:source_done_dir] = v }
+      o.on("--error-dir V")       { |v| opts[:error_dir]       = v }
+      o.on("--delay V", Integer)  { |v| opts[:delay]           = v }
+      o.on("--priority V", Integer) { |v| opts[:priority]      = v }
+      o.on("--custom")              {     opts[:custom]         = true }
+      o.on("--retries V", Integer)         { |v| opts[:retries]           = v }
+      o.on("--min-free-space-mb V", Integer) { |v| opts[:min_free_space_mb] = v }
+      o.on("--webhook-url V")              { |v| opts[:webhook_url]       = v }
+      o.on("--webhook-events V")           { |v| opts[:webhook_events]    = v.split(",").map(&:strip) }
+      o.on("--nice V", Integer)            { |v| opts[:nice]              = v }
+      o.on("--ionice-class V", Integer)    { |v| opts[:ionice_class]      = v }
+      o.on("--ionice-level V", Integer)    { |v| opts[:ionice_level]      = v }
+    end.parse!(ARGV)
+
+    cmd_watch_add(path, opts)
+
+  when "remove"
+    path = ARGV.shift
+    abort "Usage: vaksctl watch remove PATH" unless path
+    cmd_watch_remove(path)
+
+  when "suspend"
+    path = ARGV.shift
+    abort "Usage: vaksctl watch suspend PATH" unless path
+    cmd_watch_toggle(path, false)
+
+  when "resume"
+    path = ARGV.shift
+    abort "Usage: vaksctl watch resume PATH" unless path
+    cmd_watch_toggle(path, true)
+
+  else
+    abort "Unknown watch subcommand: #{subcommand.inspect}\n\n#{USAGE}"
+  end
+
+when nil, "-h", "--help"
+  puts USAGE
+
+when "-v", "--version"
+  puts "vaksctl #{Vaks::VERSION}"
+
+else
+  abort "Unknown command: #{command.inspect}\n\n#{USAGE}"
+end

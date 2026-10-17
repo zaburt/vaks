@@ -1,0 +1,15 @@
+{
+    "KPlugin": {
+        "Authors": [{"Name": "Onur Küçük", "Email": "onur@delipenguen.net"}],
+        "Category": "Utilities",
+        "Description": "Monitor and control vaksd transcoding daemon over HTTP",
+        "Icon": "vaks",
+        "Id": "zaburt.vaks.plasmoid",
+        "License": "GPL-2.0-only",
+        "Name": "vaks Monitor",
+        "Version": "1.0.0"
+    },
+    "X-Plasma-API-Minimum-Version": "6.0",
+    "X-Plasma-HasConfigurationInterface": true,
+    "KPackageStructure": "Plasma/Applet"
+}
