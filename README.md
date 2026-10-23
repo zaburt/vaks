@@ -242,6 +242,12 @@ vaksctl -r desk watch add /media/inbox --codec-video libx265
 vaksctl --local status        # ignore any configured remote
 ```
 
+`vaksctl status --all` shows every remote listed in `remotes.yml` (unreachable ones are reported,
+not fatal). `--json` (works in local mode too) prints the daemon's response as JSON and exits 1
+on error. `vaksctl wait [--timeout S]` blocks until nothing is running or queued — exit 0 when
+done, 1 if a job failed in the meantime, 2 on timeout — handy in scripts:
+`vaksctl wait && notify-send "encoding finished"`.
+
 Settings are resolved in this order: flags (`-r/--remote`, `--token`, `--local`) → environment
 (`VAKS_REMOTE`, `VAKS_URL`, `VAKS_TOKEN`) → `~/.config/vaks/remotes.yml` → local unix socket.
 A bare host defaults to port 6283.

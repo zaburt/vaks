@@ -110,4 +110,18 @@ class RemoteTest < Minitest::Test
     assert_nil Vaks::Remote.resolve(local: true, env: {}, file: file)
     assert_nil Vaks::Remote.resolve(env: {}, file: File.join(@dir, "missing.yml"))
   end
+
+  def test_all_lists_every_remote_with_flag_token_override
+    file = File.join(@dir, "remotes.yml")
+    File.write(file, { "remotes" => { "desk" => { "url" => "desk", "token" => "a" },
+                                      "nas" => { "url" => "nas:9", "token" => "b" },
+                                      "bad" => "oops" } }.to_yaml)
+    File.chmod(0o600, file)
+
+    all = Vaks::Remote.all(file: file)
+    assert_equal %w[desk nas], all.map(&:first)
+    assert_equal %w[a b], all.map { |_, c| c.instance_variable_get(:@token) }
+    assert_equal ["x", "x"], Vaks::Remote.all(token: "x", file: file).map { |_, c| c.instance_variable_get(:@token) }
+    assert_empty Vaks::Remote.all(file: File.join(@dir, "missing.yml"))
+  end
 end

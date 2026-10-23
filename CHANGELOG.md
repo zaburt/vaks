@@ -4,6 +4,7 @@
 
 ### Added
 - Remote mode for `vaksctl` — `-r/--remote NAME|URL`, `--token`, `--local`, `VAKS_REMOTE`/`VAKS_URL`/`VAKS_TOKEN` and `~/.config/vaks/remotes.yml` (with a `default:` remote) let every command drive a vaksd on another machine over the HTTP API
+- `vaksctl wait [--timeout S]` (blocks until idle; exit 0 done, 1 a job failed, 2 timeout), global `--json` output, and `vaksctl status --all` across every remote in `remotes.yml`
 - Watch management over HTTP — `POST /api/watch-add`, `/api/watch-update`, `/api/watch-remove` and `GET /api/config`; `vaksctl watch update PATH [options]`; optional `allowed_roots` in `config.yml` restricts which directories remote clients may watch
 
 - Sample `contrib/vaksd.service` and `contrib/vaksctl` that use `rvm in /opt/vaks do bundle exec ...`, so the ruby/gemset come from `.ruby-version`/`.ruby-gemset` with no hard-coded ruby version

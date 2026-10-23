@@ -80,9 +80,11 @@ module Vaks
   # Picks the transport: --local, then flags, env (VAKS_REMOTE / VAKS_URL / VAKS_TOKEN),
   # then ~/.config/vaks/remotes.yml, otherwise the local unix socket.
   module Remote
+    DEFAULT_FILE = File.join(Config::DEFAULT_CONFIG_DIR, "remotes.yml")
+
     # Returns a RemoteClient, or nil for the local socket.
     def self.resolve(remote: nil, token: nil, local: false, env: ENV,
-                     file: File.join(Config::DEFAULT_CONFIG_DIR, "remotes.yml"))
+                     file: DEFAULT_FILE)
       return nil if local
 
       data    = load_file(file)
@@ -97,6 +99,17 @@ module Vaks
 
       RemoteClient.new(url: url, token: token || env["VAKS_TOKEN"] || entry&.dig("token"),
                        name: entry ? target.to_s : nil)
+    end
+
+    # Every remote named in remotes.yml as [name, RemoteClient] pairs. An explicit token
+    # (flag) overrides the per-remote ones.
+    def self.all(token: nil, file: DEFAULT_FILE)
+      remotes = load_file(file)["remotes"]
+      return [] unless remotes.is_a?(Hash)
+      remotes.filter_map do |name, entry|
+        next unless entry.is_a?(Hash) && entry["url"]
+        [name.to_s, RemoteClient.new(url: entry["url"], token: token || entry["token"], name: name.to_s)]
+      end
     end
 
     def self.load_file(file)

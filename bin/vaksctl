@@ -18,7 +18,7 @@ require "optparse"
 # Helpers
 # ---------------------------------------------------------------------------
 
-# Global options may appear anywhere: --remote/-r NAME|URL, --token TOKEN, --local
+# Global options may appear anywhere: --remote/-r NAME|URL, --token TOKEN, --local, --json
 def extract_global_options!(argv)
   opts = {}
   rest = []
@@ -30,6 +30,7 @@ def extract_global_options!(argv)
     when "--token"        then opts[:token]  = argv.shift or abort "--token needs a value"
     when /\A--token=(.+)\z/ then opts[:token] = $1
     when "--local"        then opts[:local]  = true
+    when "--json"         then opts[:json]   = true
     else rest << arg
     end
   end
@@ -38,12 +39,13 @@ def extract_global_options!(argv)
 end
 
 GLOBAL_OPTS = extract_global_options!(ARGV)
+JSON_MODE   = GLOBAL_OPTS.delete(:json) || false
 
 def remote_client
   return @remote_client if defined?(@remote_client)
   @remote_client = Vaks::Remote.resolve(**GLOBAL_OPTS)
 rescue => e
-  abort "Error: #{e.message}"
+  fail_with(e.message)
 end
 
 def remote? = !remote_client.nil?
@@ -59,10 +61,25 @@ def path_arg(path)
   path
 end
 
-def send_cmd(hash)
-  client.send(hash)
+# In --json mode the response is printed as-is and the exit status reflects "error".
+def emit(res)
+  return unless JSON_MODE
+  puts JSON.pretty_generate(res)
+  exit(res["error"] ? 1 : 0)
+end
+
+def fail_with(message)
+  emit("error" => message)
+  abort "Error: #{message}"
+end
+
+# quiet = true returns the response without --json output (for polling loops)
+def send_cmd(hash, quiet = false)
+  res = client.send(hash)
+  emit(res) unless quiet
+  res
 rescue => e
-  abort "Error: #{e.message}"
+  fail_with(e.message)
 end
 
 def format_elapsed(seconds)
@@ -79,8 +96,11 @@ end
 
 def cmd_status
   res = send_cmd("cmd" => "status")
-
   puts "Remote  : #{remote_client.name} (#{remote_client.uri})" if remote?
+  print_status(res)
+end
+
+def print_status(res)
   puts "Watches : #{res["watches"]}"
   puts "Queued  : #{res["queued"]}"
   puts "Running : #{res["running"].length}"
@@ -94,6 +114,54 @@ def cmd_status
     fps     = job["fps"]   ? "#{job["fps"].round(1)} fps" : ""
     speed   = job["speed"] ? "speed=#{job["speed"]}"      : ""
     puts "  [PID #{job["pid"]}] #{File.basename(job["path"])}  #{elapsed}  #{fps}  #{speed}"
+  end
+end
+
+# Status of every remote in remotes.yml; an unreachable one is reported and skipped.
+def cmd_status_all
+  fail_with "--all can't be combined with --remote/--local" if GLOBAL_OPTS[:remote] || GLOBAL_OPTS[:local]
+  remotes = Vaks::Remote.all(token: GLOBAL_OPTS[:token]).to_h
+  fail_with "no remotes configured in #{Vaks::Remote::DEFAULT_FILE}" if remotes.empty?
+
+  results = remotes.to_h do |name, c|
+    [name, (c.send("cmd" => "status") rescue { "error" => $!.message })]
+  end
+  if JSON_MODE
+    puts JSON.pretty_generate(results)
+    exit(results.values.any? { |r| r["error"] } ? 1 : 0)
+  end
+  results.each do |name, res|
+    puts "== #{name} (#{remotes[name].uri}) =="
+    res["error"] ? puts("  Error: #{res["error"]}") : print_status(res)
+  end
+  exit(results.values.any? { |r| r["error"] } ? 1 : 0)
+end
+
+# Blocks until nothing is running or queued. Exit 0 = done, 1 = some job failed meanwhile
+# (or the daemon is unreachable), 2 = timed out.
+def cmd_wait(timeout: nil, interval: 5)
+  failed_now = -> { (send_cmd({ "cmd" => "history" }, true)["stats"] || {})["failed"].to_i }
+  failed_before = failed_now.call
+  started = Time.now
+  last = nil
+  loop do
+    st = send_cmd({ "cmd" => "status" }, true)
+    busy = st["running"].length + st["queued"].to_i
+    failed = [failed_now.call - failed_before, 0].max
+    if busy.zero?
+      emit("ok" => failed.zero?, "failed" => failed, "waited" => (Time.now - started).round)
+      puts "Done; #{failed} job(s) failed while waiting" if failed > 0
+      exit(failed.zero? ? 0 : 1)
+    end
+    if timeout && Time.now - started >= timeout
+      emit("error" => "timeout", "running" => st["running"].length, "queued" => st["queued"])
+      warn "Timed out with #{st["running"].length} running, #{st["queued"]} queued"
+      exit 2
+    end
+    line = "Waiting: #{st["running"].length} running, #{st["queued"]} queued#{st["stopped"] || st["paused"] ? " (queue on hold)" : ""}"
+    warn line unless JSON_MODE || line == last
+    last = line
+    sleep interval
   end
 end
 
@@ -157,10 +225,11 @@ def cmd_drain
 end
 
 def cmd_job_output(path, follow: false)
+  fail_with "--follow can't be used with --json" if follow && JSON_MODE
   path = path_arg(path)
   printed = 0
   loop do
-    res = send_cmd("cmd" => "job-output", "path" => path)
+    res = send_cmd({ "cmd" => "job-output", "path" => path }, follow)
     if res["error"]
       abort "Error: #{res["error"]}" unless follow && printed > 0
       puts "Error: #{res["error"]}"
@@ -175,7 +244,8 @@ def cmd_job_output(path, follow: false)
 end
 
 def cmd_config
-  c = remote? ? send_cmd("cmd" => "config-get") : Vaks::Config.new.public_settings
+  c = remote? ? send_cmd({ "cmd" => "config-get" }, true) : Vaks::Config.new.public_settings
+  emit(c)
   abort "Error: #{c["error"]}" if c["error"]
 
   puts "Config dir        : #{c["config_dir"]}"
@@ -257,10 +327,17 @@ end
 # Remote: the daemon validates and writes the watch. Local: write the config file directly
 # (works without a running daemon).
 def manage_watch(action, params)
-  return send_cmd(params.merge("cmd" => "watch-#{action}")) if remote?
-  Vaks::WatchManager.new(Vaks::Config.new, strict: false).public_send(action, params)
-rescue Vaks::WatchManager::Error => e
-  { "error" => e.message }
+  res = if remote?
+    send_cmd(params.merge("cmd" => "watch-#{action}"), true)
+  else
+    begin
+      Vaks::WatchManager.new(Vaks::Config.new, strict: false).public_send(action, params)
+    rescue Vaks::WatchManager::Error => e
+      { "error" => e.message }
+    end
+  end
+  emit(res)
+  res
 end
 
 def cmd_watch_add(path, opts)
@@ -319,10 +396,12 @@ end
 # ---------------------------------------------------------------------------
 
 USAGE = <<~USAGE
-  Usage: vaksctl [--remote NAME|URL] [--token TOKEN] [--local] <command> [options]
+  Usage: vaksctl [--remote NAME|URL] [--token TOKEN] [--local] [--json] <command> [options]
 
   Commands:
-    status                     Show running jobs and queue depth
+    status [--all]             Show running jobs and queue depth (--all: every remote in remotes.yml)
+    wait [--timeout S]         Block until nothing is running or queued; exit 0 = done,
+                               1 = a job failed meanwhile, 2 = timed out
     queue                      Show pending jobs in processing order
     queue reorder PATH...      Reorder the queue (first PATH is processed first)
     config                     Print current configuration
@@ -350,6 +429,7 @@ USAGE = <<~USAGE
     -r, --remote NAME|URL      Remote from ~/.config/vaks/remotes.yml, or a URL / host (port defaults to 6283)
     --token TOKEN              API token (else $VAKS_TOKEN, else the remote's token)
     --local                    Ignore any configured remote and use the local socket
+    --json                     (any mode) Print the daemon's response as JSON; exit status 1 on error
     Precedence: flags > env (VAKS_REMOTE, VAKS_URL, VAKS_TOKEN) > remotes.yml (default:) > local socket.
     Paths are then paths on the remote machine and must be absolute.
 
@@ -387,6 +467,9 @@ USAGE = <<~USAGE
     vaksctl job-output /media/inbox/movie.mkv --follow
     vaksctl history
     vaksctl -r desk status
+    vaksctl status --all
+    vaksctl --json queue
+    vaksctl wait --timeout 3600 && echo finished
     vaksctl -r desk watch add /media/inbox --codec-video libx265
     vaksctl watch update /media/inbox --priority 5
 USAGE
@@ -395,7 +478,19 @@ command = ARGV.shift
 
 case command
 when "status"
-  cmd_status
+  if ARGV.delete("--all")
+    cmd_status_all
+  else
+    cmd_status
+  end
+
+when "wait"
+  opts = { interval: 5 }
+  OptionParser.new do |o|
+    o.on("--timeout SECONDS", Float) { |v| opts[:timeout] = v }
+    o.on("--interval SECONDS", Float) { |v| opts[:interval] = v }
+  end.parse!(ARGV)
+  cmd_wait(**opts)
 
 when "config"
   subcommand = ARGV.shift
