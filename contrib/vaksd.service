@@ -1,0 +1,20 @@
+# Sample systemd user unit for a git checkout managed with rvm.
+#
+# Install:  mkdir -p ~/.config/systemd/user && cp contrib/vaksd.service ~/.config/systemd/user/
+#
+# `rvm in DIR do ...` picks the ruby and gemset from DIR's .ruby-version/.ruby-gemset,
+
+[Unit]
+Description=vaksd video conversion daemon
+After=default.target
+
+[Service]
+ExecStart=%h/.rvm/bin/rvm in /opt/vaks do bundle exec /opt/vaks/bin/vaksd
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target
+

@@ -16,7 +16,7 @@ Gem::Specification.new do |spec|
 
   spec.required_ruby_version = ">= 4.0.0"
 
-  spec.files = Dir["lib/**/*.rb", "bin/*", "doc/**/*", "README.md", "LICENSE", "CHANGELOG.md"]
+  spec.files = Dir["lib/**/*.rb", "bin/*", "contrib/*", "doc/**/*", "README.md", "LICENSE", "CHANGELOG.md"]
   spec.bindir      = "bin"
   spec.executables = %w[vaksd vaksctl]
 

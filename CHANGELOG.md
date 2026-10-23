@@ -6,6 +6,8 @@
 - Remote mode for `vaksctl` — `-r/--remote NAME|URL`, `--token`, `--local`, `VAKS_REMOTE`/`VAKS_URL`/`VAKS_TOKEN` and `~/.config/vaks/remotes.yml` (with a `default:` remote) let every command drive a vaksd on another machine over the HTTP API
 - Watch management over HTTP — `POST /api/watch-add`, `/api/watch-update`, `/api/watch-remove` and `GET /api/config`; `vaksctl watch update PATH [options]`; optional `allowed_roots` in `config.yml` restricts which directories remote clients may watch
 
+- Sample `contrib/vaksd.service` and `contrib/vaksctl` that use `rvm in /opt/vaks do bundle exec ...`, so the ruby/gemset come from `.ruby-version`/`.ruby-gemset` with no hard-coded ruby version
+
 ### Fixed
 - `vaksctl watch add --extra-args` was parsed but never written to the watch config
 
