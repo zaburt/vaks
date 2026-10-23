@@ -93,6 +93,7 @@ small_file_priority_boost: 0    # amount added to priority for small files
 http_rate_limit_max: 5          # failed auth attempts allowed before an IP is blocked
 http_rate_limit_window: 60      # seconds over which failed attempts are counted
 http_rate_limit_block: 300      # seconds an IP stays blocked after exceeding the limit
+allowed_roots: []               # remote watch add/update only accept paths inside these directories (empty = any existing directory)
 profiles:                       # named presets — reference by name via a watch's `profile_preset:`
   hq:
     codec_video: libx265
@@ -228,6 +229,36 @@ vaksctl retry-job /media/convert/error/movie.mkv   re-queue a failed job for ano
 | `--ionice-class N` | `ionice(1)` scheduling class (1=realtime, 2=best-effort, 3=idle) |
 | `--ionice-level N` | `ionice(1)` priority within the class (0-7) |
 
+## Remote control
+
+`vaksctl` can drive a vaksd on another machine over its HTTP API (set `http_host`, `http_port`
+and `http_token` there). Every command works the same; paths are then paths on the remote
+machine and must be absolute.
+
+```bash
+vaksctl -r desk status
+vaksctl -r http://desk:6283 --token SECRET queue
+vaksctl -r desk watch add /media/inbox --codec-video libx265
+vaksctl --local status        # ignore any configured remote
+```
+
+Settings are resolved in this order: flags (`-r/--remote`, `--token`, `--local`) → environment
+(`VAKS_REMOTE`, `VAKS_URL`, `VAKS_TOKEN`) → `~/.config/vaks/remotes.yml` → local unix socket.
+A bare host defaults to port 6283.
+
+```yaml
+# ~/.config/vaks/remotes.yml   (chmod 600 — it holds tokens)
+default: desk                 # used when no flag/env is given
+remotes:
+  desk:
+    url: http://desk:6283
+    token: SECRET
+```
+
+Remote watch changes are validated by the daemon: paths must be absolute, free of `..`, an
+existing directory, and — when `allowed_roots` is set in the daemon's `config.yml` — inside one
+of those directories. The API is plain HTTP, so use it on a trusted network or behind a tunnel.
+
 ## HTTP API
 
 When `http_port` is set in `config.yml`, vaksd exposes a JSON API:
@@ -247,6 +278,10 @@ When `http_port` is set in `config.yml`, vaksd exposes a JSON API:
 | POST | `/api/power` | `{"action":"shutdown_after_all"}` — one of `none`, `shutdown_after_all`, `reboot_after_all`, `shutdown_after_current`, `reboot_after_current`; switchable at any time, `none` cancels |
 | POST | `/api/retry-job` | `{"path":"..."}` — re-queue a job currently in `error/` for another attempt |
 | POST | `/api/watch-toggle` | `{"path":"...","enabled":false}` — suspend/resume a watch |
+| GET | `/api/config` | Non-secret daemon settings (workers, idle shutdown, `allowed_roots`, …) |
+| POST | `/api/watch-add` | `{"path":"/media/in","priority":2,"profile":{"codec_video":"libx265"}}` — create a watch; accepts the same fields as a watch yml |
+| POST | `/api/watch-update` | `{"path":"...","priority":5,"profile":{"codec_audio":null}}` — change only the given fields; `null` removes a field / profile key |
+| POST | `/api/watch-remove` | `{"path":"..."}` — delete a watch |
 | POST | `/api/config` | Update `workers` / `idle_shutdown` / `idle_shutdown_timeout` / `idle_shutdown_command` |
 
 If `http_token` is set, include `Authorization: Bearer <token>` in every request. Repeated failed

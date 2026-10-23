@@ -13,7 +13,8 @@ module Vaks
                   :default_retries, :retry_delay, :min_free_space_mb,
                   :webhook_url, :webhook_events, :profile_presets,
                   :small_file_bytes, :small_file_priority_boost,
-                  :http_rate_limit_max, :http_rate_limit_window, :http_rate_limit_block
+                  :http_rate_limit_max, :http_rate_limit_window, :http_rate_limit_block,
+                  :allowed_roots
     attr_accessor :workers, :idle_shutdown, :idle_shutdown_timeout, :idle_shutdown_command
 
     def initialize(config_dir: DEFAULT_CONFIG_DIR)
@@ -65,6 +66,31 @@ module Vaks
       @http_rate_limit_max     = raw.fetch("http_rate_limit_max", 5).to_i
       @http_rate_limit_window  = raw.fetch("http_rate_limit_window", 60).to_i
       @http_rate_limit_block   = raw.fetch("http_rate_limit_block", 60).to_i
+
+      # Directories remote clients may add watches under (empty = any existing directory)
+      @allowed_roots           = Array(raw.fetch("allowed_roots", [])).map { |r| File.expand_path(r.to_s) }
+    end
+
+    # Non-secret settings, served by GET /api/config so remote `vaksctl config` matches local output.
+    def public_settings
+      {
+        "config_dir"            => @config_dir,
+        "watches_dir"           => @watches_dir,
+        "socket_path"           => @socket_path,
+        "workers"               => @workers,
+        "log_level"             => @log_level,
+        "extensions"            => @extensions,
+        "idle_shutdown"         => @idle_shutdown,
+        "idle_shutdown_timeout" => @idle_shutdown_timeout,
+        "idle_shutdown_command" => @idle_shutdown_command,
+        "startup_delay"         => @startup_delay,
+        "default_retries"       => @default_retries,
+        "retry_delay"           => @retry_delay,
+        "min_free_space_mb"     => @min_free_space_mb,
+        "webhook_url"           => @webhook_url&.sub(%r{\A([a-z]+://[^/?#]+).*}i, '\\1/…'), # hide path/query secrets
+        "profile_presets"       => @profile_presets.keys,
+        "allowed_roots"         => @allowed_roots
+      }
     end
 
     # Resolve a named profile preset (from the top-level `profiles:` map) merged with
@@ -168,6 +194,27 @@ module Vaks
         return true
       end
       false
+    end
+
+    # Merge changes into an existing watch's yml. Top-level keys with a nil value are removed;
+    # "profile" is merged key by key (nil removes a profile key). Returns true if the watch exists.
+    def update_watch_config(watch_path, changes)
+      wc = watch_configs.find { |w| w[:path] == watch_path }
+      return false unless wc
+      raw = load_yaml(wc[:config_file])
+      changes.each do |key, value|
+        if key == "profile"
+          profile = (raw["profile"] || {}).merge(value)
+          profile.delete_if { |_, v| v.nil? }
+          raw["profile"] = profile
+        elsif value.nil?
+          raw.delete(key)
+        else
+          raw[key] = value
+        end
+      end
+      File.write(wc[:config_file], raw.to_yaml)
+      true
     end
 
     private

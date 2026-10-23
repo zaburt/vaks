@@ -227,6 +227,7 @@ module Vaks
       when ["GET",  "/api/watches"]       then api_watches
       when ["GET",  "/api/job-output"]    then api_job_output(params)
       when ["GET",  "/api/history"]       then api_history
+      when ["GET",  "/api/config"]        then api_config_get
       when ["POST", "/api/queue-reorder"] then api_queue_reorder(params)
       when ["POST", "/api/flush-queue"]   then api_flush_queue
       when ["POST", "/api/drain"]         then api_drain
@@ -236,6 +237,9 @@ module Vaks
       when ["POST", "/api/resume"]        then api_resume
       when ["POST", "/api/power"]         then api_power(params)
       when ["POST", "/api/watch-toggle"]  then api_watch_toggle(params)
+      when ["POST", "/api/watch-add"]     then api_watch_manage(:add, params)
+      when ["POST", "/api/watch-update"]  then api_watch_manage(:update, params)
+      when ["POST", "/api/watch-remove"]  then api_watch_manage(:remove, params)
       when ["POST", "/api/config"]        then api_config(params)
       when ["POST", "/api/retry-job"]     then api_retry_job(params)
       else { error: "not found: #{path}" }
@@ -300,6 +304,19 @@ module Vaks
       return { error: "path required" } unless path
       ok = @config.set_watch_enabled(path, !!params["enabled"])
       ok ? { ok: true } : { error: "watch not found: #{path}" }
+    end
+
+    # Add/edit/remove a watch config. The daemon's inotify hot-reload picks the change up.
+    def api_watch_manage(action, params)
+      return { error: "watch management unavailable" } unless @config
+      WatchManager.new(@config).public_send(action, params)
+    rescue WatchManager::Error => e
+      { error: e.message }
+    end
+
+    def api_config_get
+      return { error: "config unavailable" } unless @config
+      @config.public_settings
     end
 
     def api_flush_queue

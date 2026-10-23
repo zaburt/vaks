@@ -18,8 +18,45 @@ require "optparse"
 # Helpers
 # ---------------------------------------------------------------------------
 
+# Global options may appear anywhere: --remote/-r NAME|URL, --token TOKEN, --local
+def extract_global_options!(argv)
+  opts = {}
+  rest = []
+  until argv.empty?
+    arg = argv.shift
+    case arg
+    when "-r", "--remote" then opts[:remote] = argv.shift or abort "#{arg} needs a name or URL"
+    when /\A--remote=(.+)\z/ then opts[:remote] = $1
+    when "--token"        then opts[:token]  = argv.shift or abort "--token needs a value"
+    when /\A--token=(.+)\z/ then opts[:token] = $1
+    when "--local"        then opts[:local]  = true
+    else rest << arg
+    end
+  end
+  argv.concat(rest)
+  opts
+end
+
+GLOBAL_OPTS = extract_global_options!(ARGV)
+
+def remote_client
+  return @remote_client if defined?(@remote_client)
+  @remote_client = Vaks::Remote.resolve(**GLOBAL_OPTS)
+rescue => e
+  abort "Error: #{e.message}"
+end
+
+def remote? = !remote_client.nil?
+
 def client
-  Vaks::SocketClient.new(Vaks::Config.new.socket_path)
+  remote_client || Vaks::SocketClient.new(Vaks::Config.new.socket_path)
+end
+
+# Local paths are resolved against the cwd; remote paths belong to the daemon's machine.
+def path_arg(path)
+  return File.expand_path(path) unless remote?
+  abort "Error: remote paths must be absolute: #{path}" unless path.start_with?("/")
+  path
 end
 
 def send_cmd(hash)
@@ -43,6 +80,7 @@ end
 def cmd_status
   res = send_cmd("cmd" => "status")
 
+  puts "Remote  : #{remote_client.name} (#{remote_client.uri})" if remote?
   puts "Watches : #{res["watches"]}"
   puts "Queued  : #{res["queued"]}"
   puts "Running : #{res["running"].length}"
@@ -73,17 +111,18 @@ def cmd_queue
 end
 
 def cmd_queue_reorder(paths)
+  paths = paths.map { |p| path_arg(p) }
   res = send_cmd("cmd" => "queue-reorder", "paths" => paths)
   puts res["ok"] ? "Queue reordered" : "Error: #{res["error"]}"
 end
 
 def cmd_stop_job(path, all: false)
-  res = send_cmd("cmd" => "stop-job", "path" => path, "all" => all)
+  res = send_cmd("cmd" => "stop-job", "path" => path && path_arg(path), "all" => all)
   puts res["ok"] ? "Killed #{res["killed"]} job(s); queue on hold — `vaksctl resume` to start again" : "Error: #{res["error"]}"
 end
 
 def cmd_pause(path, all: false)
-  res = send_cmd("cmd" => "pause", "path" => path && File.expand_path(path), "all" => all)
+  res = send_cmd("cmd" => "pause", "path" => path && path_arg(path), "all" => all)
   puts res["ok"] ? "Froze #{res["paused"]} job(s); queue on hold — `vaksctl unpause` to continue" : "Error: #{res["error"]}"
 end
 
@@ -103,7 +142,7 @@ def cmd_power(action)
 end
 
 def cmd_retry_job(path)
-  res = send_cmd("cmd" => "retry-job", "path" => File.expand_path(path))
+  res = send_cmd("cmd" => "retry-job", "path" => path_arg(path))
   puts res["ok"] ? "Retrying: #{res["retried"]}" : "Error: #{res["error"]}"
 end
 
@@ -118,7 +157,7 @@ def cmd_drain
 end
 
 def cmd_job_output(path, follow: false)
-  path = File.expand_path(path)
+  path = path_arg(path)
   printed = 0
   loop do
     res = send_cmd("cmd" => "job-output", "path" => path)
@@ -136,22 +175,25 @@ def cmd_job_output(path, follow: false)
 end
 
 def cmd_config
-  config = Vaks::Config.new
-  puts "Config dir        : #{config.config_dir}"
-  puts "Watches dir       : #{config.watches_dir}"
-  puts "Socket path       : #{config.socket_path}"
-  puts "Workers           : #{config.workers}"
-  puts "Log level         : #{config.log_level}"
-  puts "Extensions        : #{config.extensions.join(", ")}"
-  puts "Idle shutdown     : #{config.idle_shutdown}"
-  puts "Idle timeout (s)  : #{config.idle_shutdown_timeout}"
-  puts "Idle shutdown cmd : #{config.idle_shutdown_command || "-"}"
-  puts "Startup delay (s) : #{config.startup_delay}"
-  puts "Default retries   : #{config.default_retries}"
-  puts "Retry delay (s)   : #{config.retry_delay}"
-  puts "Min free space MB : #{config.min_free_space_mb || "-"}"
-  puts "Webhook URL       : #{config.webhook_url || "-"}"
-  puts "Profile presets   : #{config.profile_presets.keys.join(", ")}" unless config.profile_presets.empty?
+  c = remote? ? send_cmd("cmd" => "config-get") : Vaks::Config.new.public_settings
+  abort "Error: #{c["error"]}" if c["error"]
+
+  puts "Config dir        : #{c["config_dir"]}"
+  puts "Watches dir       : #{c["watches_dir"]}"
+  puts "Socket path       : #{c["socket_path"]}"
+  puts "Workers           : #{c["workers"]}"
+  puts "Log level         : #{c["log_level"]}"
+  puts "Extensions        : #{c["extensions"].join(", ")}"
+  puts "Idle shutdown     : #{c["idle_shutdown"]}"
+  puts "Idle timeout (s)  : #{c["idle_shutdown_timeout"]}"
+  puts "Idle shutdown cmd : #{c["idle_shutdown_command"] || "-"}"
+  puts "Startup delay (s) : #{c["startup_delay"]}"
+  puts "Default retries   : #{c["default_retries"]}"
+  puts "Retry delay (s)   : #{c["retry_delay"]}"
+  puts "Min free space MB : #{c["min_free_space_mb"] || "-"}"
+  puts "Webhook URL       : #{c["webhook_url"] || "-"}"
+  puts "Profile presets   : #{c["profile_presets"].join(", ")}" unless c["profile_presets"].empty?
+  puts "Allowed roots     : #{c["allowed_roots"].join(", ")}" unless c["allowed_roots"].empty?
 end
 
 def cmd_set_workers(count)
@@ -189,7 +231,7 @@ def cmd_watch_list
 end
 
 def cmd_watch_toggle(path, enabled)
-  res = send_cmd("cmd" => "watch-toggle", "path" => File.expand_path(path), "enabled" => enabled)
+  res = send_cmd("cmd" => "watch-toggle", "path" => path_arg(path), "enabled" => enabled)
   if res["ok"]
     puts "Watch #{enabled ? "resumed" : "suspended"}: #{path}"
   else
@@ -197,49 +239,47 @@ def cmd_watch_toggle(path, enabled)
   end
 end
 
-def cmd_watch_add(path, opts)
-  config = Vaks::Config.new
-  profile = config.default_profile.dup
-  profile[:codec_video]    = opts[:codec_video]    if opts[:codec_video]
-  profile[:codec_audio]    = opts[:codec_audio]    if opts[:codec_audio]
-  profile[:codec_subtitle] = opts[:codec_subtitle] if opts[:codec_subtitle]
-  profile[:resolution]     = opts[:resolution]     if opts[:resolution]
-  profile[:smart_audio]    = opts[:smart_audio]    if opts[:smart_audio]
+# Maps parsed CLI options to the watch-add/watch-update payload.
+def watch_params(path, opts)
+  profile = {}
+  %i[codec_video codec_audio codec_subtitle resolution smart_audio extra_args].each do |k|
+    profile[k.to_s] = opts[k] unless opts[k].nil?
+  end
+  params = { "path" => path }
+  params["profile"] = profile unless profile.empty?
+  %i[done_dir working_dir source_done_dir error_dir delay priority custom profile_preset retries
+     min_free_space_mb webhook_url webhook_events nice ionice_class ionice_level].each do |k|
+    params[k.to_s] = opts[k] unless opts[k].nil?
+  end
+  params
+end
 
-  file = config.write_watch_config(
-    watch_path:      File.expand_path(path),
-    profile:         profile,
-    done_dir:        opts[:done_dir]        || "done",
-    working_dir:     opts[:working_dir],
-    source_done_dir: opts[:source_done_dir],
-    error_dir:       opts[:error_dir]       || "error",
-    delay:           opts[:delay]           || 0,
-    priority:        opts[:priority]        || 0,
-    custom:          opts[:custom]          || false,
-    profile_preset:  opts[:profile_preset],
-    retries:         opts[:retries],
-    min_free_space_mb: opts[:min_free_space_mb],
-    webhook_url:     opts[:webhook_url],
-    webhook_events:  opts[:webhook_events],
-    nice:            opts[:nice],
-    ionice_class:    opts[:ionice_class],
-    ionice_level:    opts[:ionice_level]
-  )
-  puts "Watch added: #{path}"
-  puts "Config written: #{file}"
-rescue => e
-  abort "Error: #{e.message}"
+# Remote: the daemon validates and writes the watch. Local: write the config file directly
+# (works without a running daemon).
+def manage_watch(action, params)
+  return send_cmd(params.merge("cmd" => "watch-#{action}")) if remote?
+  Vaks::WatchManager.new(Vaks::Config.new, strict: false).public_send(action, params)
+rescue Vaks::WatchManager::Error => e
+  { "error" => e.message }
+end
+
+def cmd_watch_add(path, opts)
+  res = manage_watch(:add, watch_params(path_arg(path), opts))
+  abort "Error: #{res["error"]}" if res["error"]
+  puts "Watch added: #{res["path"]}"
+  puts "Config written: #{res["config_file"]}"
+end
+
+def cmd_watch_update(path, opts)
+  res = manage_watch(:update, watch_params(path_arg(path), opts))
+  abort "Error: #{res["error"]}" if res["error"]
+  puts "Watch updated: #{res["path"]}"
 end
 
 def cmd_watch_remove(path)
-  config = Vaks::Config.new
-  if config.delete_watch_config(File.expand_path(path))
-    puts "Watch removed: #{path}"
-  else
-    abort "No watch found for: #{path}"
-  end
-rescue => e
-  abort "Error: #{e.message}"
+  res = manage_watch(:remove, { "path" => path_arg(path) })
+  abort "Error: #{res["error"]}" if res["error"]
+  puts "Watch removed: #{res["path"]}"
 end
 
 def format_bytes(n)
@@ -279,7 +319,7 @@ end
 # ---------------------------------------------------------------------------
 
 USAGE = <<~USAGE
-  Usage: vaksctl <command> [options]
+  Usage: vaksctl [--remote NAME|URL] [--token TOKEN] [--local] <command> [options]
 
   Commands:
     status                     Show running jobs and queue depth
@@ -299,13 +339,21 @@ USAGE = <<~USAGE
     drain                      Finish current jobs then stop the daemon
     watch list                 List watched directories
     watch add PATH [options]   Add a new watched directory
+    watch update PATH [options] Change settings of an existing watch (only the given options)
     watch remove PATH          Remove a watched directory
     watch suspend PATH         Temporarily stop encoding new files for a watch
     watch resume PATH          Resume a suspended watch
     job-output PATH [--follow] Show buffered ffmpeg output for a running job
     history                    Show recently completed/failed jobs and stats
 
-  Options for 'watch add':
+  Remote mode (talk to a vaksd on another machine over its HTTP API):
+    -r, --remote NAME|URL      Remote from ~/.config/vaks/remotes.yml, or a URL / host (port defaults to 6283)
+    --token TOKEN              API token (else $VAKS_TOKEN, else the remote's token)
+    --local                    Ignore any configured remote and use the local socket
+    Precedence: flags > env (VAKS_REMOTE, VAKS_URL, VAKS_TOKEN) > remotes.yml (default:) > local socket.
+    Paths are then paths on the remote machine and must be absolute.
+
+  Options for 'watch add' / 'watch update':
     --codec-video VALUE        Video codec (e.g. libx265, libx264, copy)
     --codec-audio VALUE        Audio codec (e.g. aac, copy)
     --codec-subtitle VALUE     Subtitle codec (e.g. copy)
@@ -338,6 +386,9 @@ USAGE = <<~USAGE
     vaksctl watch suspend /media/inbox
     vaksctl job-output /media/inbox/movie.mkv --follow
     vaksctl history
+    vaksctl -r desk status
+    vaksctl -r desk watch add /media/inbox --codec-video libx265
+    vaksctl watch update /media/inbox --priority 5
 USAGE
 
 command = ARGV.shift
@@ -426,9 +477,9 @@ when "watch"
   when "list"
     cmd_watch_list
 
-  when "add"
+  when "add", "update"
     path = ARGV.shift
-    abort "Usage: vaksctl watch add PATH [options]" unless path
+    abort "Usage: vaksctl watch #{subcommand} PATH [options]" unless path
 
     opts = {}
     OptionParser.new do |o|
@@ -455,7 +506,7 @@ when "watch"
       o.on("--ionice-level V", Integer)    { |v| opts[:ionice_level]      = v }
     end.parse!(ARGV)
 
-    cmd_watch_add(path, opts)
+    subcommand == "add" ? cmd_watch_add(path, opts) : cmd_watch_update(path, opts)
 
   when "remove"
     path = ARGV.shift

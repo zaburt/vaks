@@ -14,6 +14,8 @@ require_relative "vaks/watcher"
 require_relative "vaks/socket_server"
 require_relative "vaks/http_server"
 require_relative "vaks/socket_client"
+require_relative "vaks/remote_client"
+require_relative "vaks/watch_manager"
 require_relative "vaks/vaksd"
 
 module Vaks
