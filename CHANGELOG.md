@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-24
+
 ### Added
 - Remote mode for `vaksctl` — `-r/--remote NAME|URL`, `--token`, `--local`, `VAKS_REMOTE`/`VAKS_URL`/`VAKS_TOKEN` and `~/.config/vaks/remotes.yml` (with a `default:` remote) let every command drive a vaksd on another machine over the HTTP API
 - `vaksctl wait [--timeout S]` (blocks until idle; exit 0 done, 1 a job failed, 2 timeout), global `--json` output, and `vaksctl status --all` across every remote in `remotes.yml`
