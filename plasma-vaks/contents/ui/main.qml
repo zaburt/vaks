@@ -58,6 +58,22 @@ PlasmoidItem {
         return false
     }
 
+    // Icon file for the pending after-done power action ("" when none); shutdown wins over reboot
+    readonly property string afterActionIcon: {
+        var found = ""
+        for (var k in sourceStates) {
+            var s = sourceStates[k]
+            if (!s || !s.connected) continue
+            var a = s.afterAction || "none"
+            if (a === "none") continue
+            var icon = "vaks-" + (a.indexOf("reboot") === 0 ? "reboot" : "shutdown")
+                     + (a.indexOf("_all") > 0 ? "-all" : "-current") + ".svg"
+            if (a.indexOf("shutdown") === 0) return icon
+            found = icon
+        }
+        return found
+    }
+
     // Mean progress (0..1) of running jobs from media time done ÷ duration, or -1 if unknown
     readonly property real overallProgress: {
         var sum = 0, n = 0

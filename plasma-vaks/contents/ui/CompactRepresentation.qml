@@ -34,7 +34,31 @@ MouseArea {
 
         Image {
             anchors.fill: parent
-            source: Qt.resolvedUrl("../icons/" + (root.anyStopped ? "vaks-stopped.svg" : "vaks.svg"))
+            source: Qt.resolvedUrl("../icons/" + (root.anyStopped ? "vaks-stopped.svg" : root.totalActive > 0 ? "vaks-encoding.svg" : "vaks.svg"))
+            sourceSize: Qt.size(width * Screen.devicePixelRatio, height * Screen.devicePixelRatio)
+            smooth: true
+        }
+
+        Image {
+            visible: root.notificationsMuted
+            width: parent.height * 0.42
+            height: width
+            anchors.right: parent.right
+            anchors.top: parent.top
+            anchors.topMargin: -height * 0.15
+            source: Qt.resolvedUrl("../icons/vaks-muted.svg")
+            sourceSize: Qt.size(width * Screen.devicePixelRatio, height * Screen.devicePixelRatio)
+            smooth: true
+        }
+
+        Image {
+            visible: root.afterActionIcon !== ""
+            height: parent.height * 0.42
+            width: height * 28 / 24
+            anchors.left: parent.left
+            anchors.bottom: track.top
+            anchors.bottomMargin: -height * 0.15
+            source: root.afterActionIcon !== "" ? Qt.resolvedUrl("../icons/" + root.afterActionIcon) : ""
             sourceSize: Qt.size(width * Screen.devicePixelRatio, height * Screen.devicePixelRatio)
             smooth: true
         }
@@ -69,13 +93,13 @@ MouseArea {
         }
     }
 
-        // Active/queued count, large enough to read at a glance
+        // Active/queued count, compact but readable
         PlasmaComponents3.Label {
             visible: root.totalJobs > 0
             Layout.alignment: Qt.AlignCenter
             text:  root.totalActive + "/" + root.totalJobs
             color: Kirigami.Theme.textColor
-            font.pixelSize: Math.max(10, unit * (vertical ? 0.38 : 0.6))
+            font.pixelSize: Math.max(9, unit * (vertical ? 0.28 : 0.42))
             font.bold: true
         }
 
@@ -85,7 +109,7 @@ MouseArea {
             Layout.alignment: Qt.AlignCenter
             text:  "✕" + root.totalFailed
             color: Kirigami.Theme.negativeTextColor
-            font.pixelSize: Math.max(10, unit * (vertical ? 0.38 : 0.6))
+            font.pixelSize: Math.max(9, unit * (vertical ? 0.28 : 0.42))
             font.bold: true
         }
     }
