@@ -1,0 +1,54 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# When run from a git checkout (e.g. deployed to /opt/vaks), pick up the
+# locked gem versions from the repo's Gemfile. Gem-installed deployments
+# don't ship a Gemfile, so this is a no-op there.
+gemfile = File.expand_path("../Gemfile", __dir__)
+if File.exist?(gemfile)
+  ENV["BUNDLE_GEMFILE"] ||= gemfile
+  require "bundler/setup"
+end
+
+$LOAD_PATH.unshift File.join(__dir__, "../lib")
+require "vaks"
+require "vaks/tui"
+
+USAGE = <<~TEXT
+  Usage: vakstui [-r NAME|URL] [--token TOKEN] [--local]
+
+  Full-screen console UI for vaksd. Connects like vaksctl: --remote/-r, --token, --local,
+  VAKS_REMOTE / VAKS_URL / VAKS_TOKEN, ~/.config/vaks/remotes.yml, otherwise the local socket.
+  Press ? inside for the key list; [ and ] switch between the daemons in remotes.yml.
+TEXT
+
+opts = {}
+args = ARGV.dup
+until args.empty?
+  arg = args.shift
+  case arg
+  when "-h", "--help" then puts USAGE; exit
+  when "-r", "--remote" then opts[:remote] = args.shift or abort "#{arg} needs a name or URL"
+  when /\A--remote=(.+)\z/ then opts[:remote] = $1
+  when "--token" then opts[:token] = args.shift or abort "--token needs a value"
+  when /\A--token=(.+)\z/ then opts[:token] = $1
+  when "--local" then opts[:local] = true
+  else abort "vakstui: unknown argument #{arg.inspect}\n\n#{USAGE}"
+  end
+end
+
+abort "vakstui needs an interactive terminal" unless $stdin.tty? && $stdout.tty?
+
+begin
+  remote = Vaks::Remote.resolve(**opts)
+  active = remote || Vaks::SocketClient.new(Vaks::Config.new.socket_path)
+  sources = Vaks::TUI::Source.discover(
+    active_client: active, active_name: remote ? remote.name : "local",
+    active_remote: !remote.nil?, token: opts[:token]
+  )
+  Vaks::TUI::App.new(sources: sources).run
+rescue Interrupt
+  nil
+rescue => e
+  abort "vakstui: #{e.message}"
+end

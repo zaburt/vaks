@@ -4,7 +4,7 @@ require "json"
 
 module Vaks
   class SocketServer
-    def initialize(socket_path:, queue:, in_flight:, pending_jobs:, pid_map:, mutex:, watcher:, logger:, config: nil, history: nil, control: nil, on_drain: nil, on_config: nil)
+    def initialize(socket_path:, queue:, in_flight:, pending_jobs:, pid_map:, mutex:, watcher:, logger:, config: nil, history: nil, control: nil, durations: nil, on_drain: nil, on_config: nil)
       @socket_path  = socket_path
       @queue        = queue
       @in_flight    = in_flight
@@ -16,6 +16,7 @@ module Vaks
       @config       = config
       @history      = history
       @control      = control
+      @durations    = durations
       @on_drain     = on_drain
       @on_config    = on_config
     end
@@ -90,8 +91,10 @@ module Vaks
           { path: path }.merge(info.reject { |k, _| k == :output }.transform_keys(&:to_s))
         end
       end
+      running.each { |j| j[:duration] = @durations&.get(j[:path]) }
       { running: running, queued: @queue.length, watches: @watcher.watched_paths.length,
-        stopped: @control.stopped?, paused: @control.paused?, after_action: @control.after, power_error: @control.power_error }
+        stopped: @control.stopped?, paused: @control.paused?, after_action: @control.after, power_error: @control.power_error,
+        config: { workers: @config&.workers } }
     end
 
     def cmd_queue
@@ -101,6 +104,7 @@ module Vaks
           { path: j.path, watch: File.basename(j.watch_path), priority: j.priority }
         end
       end
+      jobs.each { |j| j[:duration] = @durations&.get(j[:path]) }
       jobs.sort_by! { |j| order.index(j[:path]) || order.length }
       { queued: jobs.length, jobs: jobs }
     end

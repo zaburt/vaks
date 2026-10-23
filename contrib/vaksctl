@@ -1,6 +1,7 @@
 #!/bin/bash
 # Same rvm approach as contrib/vaksd.service. Put a copy (or symlink) on your PATH as
-# `vaksctl`, and/or as `vaksd` to run the daemon: the command run is named after $0.
+# `vaksctl`, and/or as `vaksd` (the daemon) or `vakstui` (the console UI): the command run
+# is named after $0.
 
 tool="$(basename "$0")"
 exec "$HOME/.rvm/bin/rvm" in /opt/vaks do bundle exec "/opt/vaks/bin/$tool" "$@"

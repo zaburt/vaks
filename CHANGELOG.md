@@ -7,6 +7,8 @@
 - `vaksctl wait [--timeout S]` (blocks until idle; exit 0 done, 1 a job failed, 2 timeout), global `--json` output, and `vaksctl status --all` across every remote in `remotes.yml`
 - Watch management over HTTP — `POST /api/watch-add`, `/api/watch-update`, `/api/watch-remove` and `GET /api/config`; `vaksctl watch update PATH [options]`; optional `allowed_roots` in `config.yml` restricts which directories remote clients may watch
 
+- `vakstui` — full-screen console UI (no extra gems): running jobs with progress/ETA, queue with reordering, history, watches (add/edit/remove/suspend), live ffmpeg output, pause/stop/resume/drain/flush, worker count, power-after-done menu, desktop notifications via `notify-send` (mutable), and `[`/`]` to switch between the daemons in `remotes.yml`
+- Local socket `status`/`queue` now include media durations and the worker count, like the HTTP API
 - Sample `contrib/vaksd.service` and `contrib/vaksctl` that use `rvm in /opt/vaks do bundle exec ...`, so the ruby/gemset come from `.ruby-version`/`.ruby-gemset` with no hard-coded ruby version
 
 ### Fixed

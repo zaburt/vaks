@@ -18,7 +18,7 @@ Gem::Specification.new do |spec|
 
   spec.files = Dir["lib/**/*.rb", "bin/*", "contrib/*", "doc/**/*", "README.md", "LICENSE", "CHANGELOG.md"]
   spec.bindir      = "bin"
-  spec.executables = %w[vaksd vaksctl]
+  spec.executables = %w[vaksd vaksctl vakstui]
 
   spec.add_dependency "rb-inotify", "~> 0.11"
   spec.add_dependency "logger"

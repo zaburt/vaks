@@ -265,6 +265,40 @@ Remote watch changes are validated by the daemon: paths must be absolute, free o
 existing directory, and — when `allowed_roots` is set in the daemon's `config.yml` — inside one
 of those directories. The API is plain HTTP, so use it on a trusted network or behind a tunnel.
 
+## vakstui
+
+`vakstui` is a full-screen console UI with the same features as the Plasma widget. It needs nothing
+beyond Ruby (plain ANSI, no extra gems) and takes the same connection options as `vaksctl`
+(`-r/--remote`, `--token`, `--local`, `VAKS_REMOTE`/`VAKS_URL`/`VAKS_TOKEN`, `remotes.yml`).
+
+```
+vakstui                  # local daemon, or the default remote from remotes.yml
+vakstui -r desk          # a named remote
+```
+
+| Key | Action |
+|---|---|
+| `Tab` / `Shift+Tab` | Move focus between Running, Queue and the bottom pane |
+| `j` `k` / arrows, `PgUp` `PgDn` | Move the selection |
+| `1` `2` `3` | Bottom pane: History / Watches / Output |
+| `Enter` | On a running job: show its live ffmpeg output |
+| `p` | Pause / continue all running jobs |
+| `s` / `S` | Stop the selected job / all jobs |
+| `r` | Resume the queue after a stop |
+| `x` / `d` | Flush the queue / drain the daemon (both ask first) |
+| `J` / `K` | Move the selected queued job down / up |
+| `t` | Retry the selected failed job (History) |
+| `n` `e` `D` `Space` | Watches: new, edit, remove, suspend/resume |
+| `+` / `-` | Add / remove a worker |
+| `a` | When finished: shut down / reboot after the current job or after everything |
+| `m` | Mute desktop notifications (this session only) |
+| `[` / `]` | Previous / next daemon from `remotes.yml` |
+| `?` / `q` | Help / quit |
+
+Job completions and failures raise a desktop notification through `notify-send` when it is
+installed. The watch form sends only the fields you changed; clearing a field removes it from the
+watch so the global default applies again.
+
 ## HTTP API
 
 When `http_port` is set in `config.yml`, vaksd exposes a JSON API:

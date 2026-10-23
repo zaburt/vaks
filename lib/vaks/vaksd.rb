@@ -55,6 +55,7 @@ module Vaks
         config:       @config,
         history:      @history,
         control:      @control,
+        durations:    @durations,
         on_drain:     method(:drain),
         on_config:    method(:apply_config)
       )
