@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-10-30
+
+### Changed
+- Plasma widget: the panel icon is drawn slightly smaller (85%) when "Follow icon theme" is selected
+
 ## [1.2.0] - 2026-10-30
 
 ### Added

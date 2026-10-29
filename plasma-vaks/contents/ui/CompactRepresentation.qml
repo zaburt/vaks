@@ -31,8 +31,10 @@ MouseArea {
         id: iconBox
         // 0 = bundled artwork, 1 = resolve icons through the active icon theme
         readonly property bool useTheme: Plasmoid.configuration.iconStyle === 1
-        implicitWidth:  vertical ? unit : unit * 60 / 56
-        implicitHeight: vertical ? unit * 56 / 60 : unit
+        // Themed icons render a bit smaller; the progress bar is sized from this box so it stays aligned
+        readonly property real sizeFactor: useTheme ? 0.85 : 1
+        implicitWidth:  (vertical ? unit : unit * 60 / 56) * sizeFactor
+        implicitHeight: (vertical ? unit * 56 / 60 : unit) * sizeFactor
 
         ThemedIcon {
             anchors.fill: parent
