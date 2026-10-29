@@ -7,7 +7,7 @@
         "Id": "zaburt.vaks.plasmoid",
         "License": "GPL-2.0-only",
         "Name": "vaks Monitor",
-        "Version": "1.1.0"
+        "Version": "1.2.0"
     },
     "X-Plasma-API-Minimum-Version": "6.0",
     "X-Plasma-HasConfigurationInterface": true,

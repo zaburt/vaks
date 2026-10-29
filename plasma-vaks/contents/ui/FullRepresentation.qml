@@ -16,8 +16,9 @@ PlasmaExtras.Representation {
         RowLayout {
             anchors.fill: parent
 
-            Kirigami.Icon {
-                source: Qt.resolvedUrl("../icons/vaks.svg")
+            ThemedIcon {
+                name: "vaks"
+                useTheme: Plasmoid.configuration.iconStyle === 1
                 width:  Kirigami.Units.iconSizes.small
                 height: width
             }

@@ -7,6 +7,7 @@ Item {
 
     property string cfg_sources:       "[]"
     property bool   cfg_notifications: true
+    property int    cfg_iconStyle:     0
 
     // Guard to avoid reloading the model from our own saveSources() write.
     property bool _internalUpdate: false
@@ -60,6 +61,16 @@ Item {
             text: "Show notifications when a job completes or fails"
             checked: page.cfg_notifications
             onToggled: page.cfg_notifications = checked
+        }
+
+        RowLayout {
+            spacing: 8
+            QQC2.Label { text: "Icon style:" }
+            QQC2.ComboBox {
+                model: ["Bundled", "Follow icon theme"]
+                currentIndex: page.cfg_iconStyle
+                onActivated: page.cfg_iconStyle = currentIndex
+            }
         }
 
         QQC2.Label { text: "Sources"; font.bold: true; font.pixelSize: 14 }

@@ -5,6 +5,10 @@
         <entry name="sources" type="String">
             <default>[]</default>
         </entry>
+        <!-- 0 = bundled icons, 1 = follow the active icon theme (bundled as fallback) -->
+        <entry name="iconStyle" type="Int">
+            <default>0</default>
+        </entry>
         <entry name="notifications" type="Bool">
             <default>true</default>
         </entry>

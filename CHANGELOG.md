@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-10-30
+
+### Added
+- Plasma widget: "Icon style" setting. "Follow icon theme" resolves `vaks`, `vaks-encoding`, `vaks-stopped`, `vaks-muted` and the reboot/shutdown icons through the active icon theme, with the bundled SVGs as fallback (default stays bundled)
+
 ## [1.1.0] - 2026-10-24
 
 ### Added

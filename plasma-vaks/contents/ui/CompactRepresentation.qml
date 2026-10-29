@@ -29,38 +29,37 @@ MouseArea {
     // (indeterminate sweep when durations are unknown), grey with pause bars when on hold.
     Item {
         id: iconBox
+        // 0 = bundled artwork, 1 = resolve icons through the active icon theme
+        readonly property bool useTheme: Plasmoid.configuration.iconStyle === 1
         implicitWidth:  vertical ? unit : unit * 60 / 56
         implicitHeight: vertical ? unit * 56 / 60 : unit
 
-        Image {
+        ThemedIcon {
             anchors.fill: parent
-            source: Qt.resolvedUrl("../icons/" + (root.anyStopped ? "vaks-stopped.svg" : root.totalActive > 0 ? "vaks-encoding.svg" : "vaks.svg"))
-            sourceSize: Qt.size(width * Screen.devicePixelRatio, height * Screen.devicePixelRatio)
-            smooth: true
+            useTheme: iconBox.useTheme
+            name: root.anyStopped ? "vaks-stopped" : root.totalActive > 0 ? "vaks-encoding" : "vaks"
         }
 
-        Image {
+        ThemedIcon {
             visible: root.notificationsMuted
             width: parent.height * 0.42
             height: width
             anchors.right: parent.right
             anchors.top: parent.top
             anchors.topMargin: -height * 0.15
-            source: Qt.resolvedUrl("../icons/vaks-muted.svg")
-            sourceSize: Qt.size(width * Screen.devicePixelRatio, height * Screen.devicePixelRatio)
-            smooth: true
+            useTheme: iconBox.useTheme
+            name: "vaks-muted"
         }
 
-        Image {
+        ThemedIcon {
             visible: root.afterActionIcon !== ""
             height: parent.height * 0.42
             width: height * 28 / 24
             anchors.left: parent.left
             anchors.bottom: track.top
             anchors.bottomMargin: -height * 0.15
-            source: root.afterActionIcon !== "" ? Qt.resolvedUrl("../icons/" + root.afterActionIcon) : ""
-            sourceSize: Qt.size(width * Screen.devicePixelRatio, height * Screen.devicePixelRatio)
-            smooth: true
+            useTheme: iconBox.useTheme
+            name: root.afterActionIcon.replace(/\.svg$/, "")
         }
 
         Item {

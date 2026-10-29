@@ -1,7 +1,7 @@
 PATH
   remote: .
   specs:
-    vaks (1.1.0)
+    vaks (1.2.0)
       logger
       rb-inotify (~> 0.11)
       ruby-dbus (~> 0.25)
@@ -72,7 +72,7 @@ CHECKSUMS
   rb-inotify (0.11.1) sha256=a0a700441239b0ff18eb65e3866236cd78613d6b9f78fea1f9ac47a85e47be6e
   rexml (3.4.4) sha256=19e0a2c3425dfbf2d4fc1189747bdb2f849b6c5e74180401b15734bc97b5d142
   ruby-dbus (0.25.0) sha256=fe431ca96a61f7c87a5177a43c9fe0a50eafe174c1d108421e38bb5165ea4814
-  vaks (1.1.0)
+  vaks (1.2.0)
 
 BUNDLED WITH
   4.0.20
